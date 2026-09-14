@@ -1,0 +1,13 @@
+.venv/
+.venv
+__pycache__/
+*.pyc
+node_modules/
+frontend/dist/
+static/assets/
+storage/
+chroma/
+reports/
+data/
+.env
+.DS_Store

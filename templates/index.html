@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>保险知识库 RAG 智能问答</title>
+</head>
+<body>
+  <div id="root"></div>
+  {% if dev %}
+  <script type="module">
+    import { injectIntoGlobalHook } from "/@react-refresh";
+    injectIntoGlobalHook(window);
+    window.$RefreshReg$ = () => {};
+    window.$RefreshSig$ = () => (type) => type;
+  </script>
+  <script type="module" src="/@vite/client"></script>
+  <script type="module" src="/src/main.jsx"></script>
+  {% else %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='assets/index.css') }}" />
+  <script type="module" src="{{ url_for('static', filename='assets/index.js') }}"></script>
+  {% endif %}
+</body>
+</html>
