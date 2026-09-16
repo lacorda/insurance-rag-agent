@@ -99,6 +99,11 @@ def _tokenize(text: str) -> list:
     返回:
         token 列表
     """
+
+    # jieba.lcut 是 jieba 库的默认分词模式，它会根据词典和语料库进行分词，并返回一个列表。
+    # 这个列表中的每个元素都是分词后的一个词。
+    # 例如，对于文本 "这是一个测试", jieba.lcut 会返回 ["这", "是", "一个", "测试"]。
+    # 这个列表中的每个元素都是分词后的一个词。
     return [tok for tok in jieba.lcut(text) if tok.strip()]
 
 
@@ -111,6 +116,9 @@ def build_bm25(chunks: list) -> tuple:
         (BM25Okapi, chunks)
     """
     corpus = [_tokenize(row["text"]) for row in chunks]
+
+    # BM25Okapi 是 BM25 算法的实现类，它接受一个列表作为参数，列表中的每个元素都是分词后的一个词。
+    # 例如，对于文本 "这是一个测试", BM25Okapi 会返回一个 BM25Okapi 对象，它接受一个列表作为参数，列表中的每个元素都是分词后的一个词。
     return BM25Okapi(corpus), chunks
 
 
@@ -126,6 +134,8 @@ def _chunk_to_lc(row: dict, score) -> LCDocument:
     return LCDocument(
         page_content=row["text"],
         metadata={
+            # 将 score 四舍五入到小数点后 4 位，如果 score 为 None，则返回 None。
+            # 例如，对于 score 0.123456789，round(float(score), 4) 会返回 0.1235。
             "score": round(float(score), 4) if score is not None else None,
             "file_name": row["file_name"],
             "file_type": row.get("file_type", ""),
@@ -146,7 +156,13 @@ def bm25_search(bm25, chunks: list, query: str, top_k: int = BM25_TOP_K) -> list
     返回:
         LCDocument 列表
     """
+
+    # bm25.get_scores 是 BM25Okapi 对象的 get_scores 方法，它接受一个列表作为参数，列表中的每个元素都是分词后的一个词。
+    # 返回：[0.1, 0.2, 0.3, 0.4, 0.5]
     scores = bm25.get_scores(_tokenize(query))
+
+    # 将 scores 中的元素和索引打包成元组，然后按分数降序排序，最后截取前 top_k 个元素。
+    # 返回：[(0, 0.5), (1, 0.4), (2, 0.3), (3, 0.2), (4, 0.1)]
     ranked = sorted(enumerate(scores), key=lambda item: item[1], reverse=True)[:top_k]
     return [_chunk_to_lc(chunks[idx], score) for idx, score in ranked]
 
@@ -313,6 +329,8 @@ def create_hybrid_retriever(index, bm25, chunks: list):
     返回:
         输入 query 字符串，输出 {"bm25": [...], "vector": [...]}
     """
+
+    # 带 score 的 BM25 检索和向量检索。
     return RunnableParallel(
         bm25=RunnableLambda(lambda query: bm25_search(bm25, chunks, query)),
         vector=RunnableLambda(lambda query: vector_search(index, query)),

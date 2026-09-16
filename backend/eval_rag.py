@@ -1,7 +1,7 @@
 # coding: utf-8
 """保险 RAG 检索评估：HitRate@K、MRR、RAGAS faithfulness / answer_relevancy。
 
-面试时在 backend 目录执行: python eval_rag.py
+在 backend 目录执行: python eval_rag.py
 """
 
 import json

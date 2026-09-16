@@ -1,16 +1,16 @@
 # coding: utf-8
-"""文档加载、混合分块、Chroma 增量索引。
+"""文档加载、递归分块、Chroma 增量索引。
 
-从 agent.py 的 LlamaIndex 建索引路径拷贝而来，向量库改为 Chroma，
-分块改为句子边界 + 滑动窗口。不再使用 SimpleVectorStore。
+向量库为 Chroma。正文用 LangChain RecursiveCharacterTextSplitter
+按段落 / 中英句读 / 空白切开。
 """
 
 import hashlib
 import json
 import os
-import re
 
 import chromadb
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from llama_index.core import SimpleDirectoryReader, StorageContext, VectorStoreIndex
 from llama_index.core.schema import TextNode
 from llama_index.vector_stores.chroma import ChromaVectorStore
@@ -22,65 +22,37 @@ MANIFEST_PATH = os.path.join(CHROMA_DIR, "manifest.json")
 COLLECTION_NAME = "insurance_kb"
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 150
+CHUNK_SPEC = f"rcts-{CHUNK_SIZE}-{CHUNK_OVERLAP}"
 
-_SENTENCE_SPLIT = re.compile(r"(?<=[。！？；!?\n])")
+
+# 文本切分器，返回格式为：[chunk1, chunk2, chunk3, ...]
+# 每个chunk包含：
+# - text: 切分后的文本内容
+# - id_: 切分后的文本的唯一标识
+# - metadata: 切分后的文本的元数据
+# - node_id: 切分后的文本的节点标识
+# - file_name: 切分后的文本的文件名
+# - file_path: 切分后的文本的文件路径
+# - file_type: 切分后的文本的文件类型
+# - chunk_id: 切分后的文本的块标识
+# - content_hash: 切分后的文本的内容哈希
+_TEXT_SPLITTER = RecursiveCharacterTextSplitter(
+    chunk_size=CHUNK_SIZE,
+    chunk_overlap=CHUNK_OVERLAP,
+    separators=["\n\n", "\n", "。", "！", "？", "；", "!", "?", " ", ""],
+)
 
 
-def split_sentences(text: str) -> list:
-    """按中英文句子边界切开文本。
+def split_chunks(text: str) -> list:
+    """用 RecursiveCharacterTextSplitter 切块。
 
     参数:
         text: 原始文档正文
     返回:
-        去掉空白后的句子列表
+        分块后的字符串列表，part.strip() 去除空格和换行符
     """
-    parts = [p.strip() for p in _SENTENCE_SPLIT.split(text) if p.strip()]
-    return parts
 
-
-def hybrid_chunk(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list:
-    """句子边界切开后，按字符近似 token 做滑动窗口拼接。
-
-    中文按 1 字 ≈ 1 token。窗口约 chunk_size，相邻块重叠约 overlap。
-
-    参数:
-        text: 原始文档正文
-        chunk_size: 目标块大小（字符）
-        overlap: 相邻块重叠（字符）
-    返回:
-        分块后的字符串列表
-    """
-    sentences = split_sentences(text)
-    if not sentences:
-        return []
-
-    chunks = []
-    start = 0
-    while start < len(sentences):
-        buf = []
-        size = 0
-        i = start
-        while i < len(sentences):
-            sentence = sentences[i]
-            if buf and size + len(sentence) > chunk_size:
-                break
-            buf.append(sentence)
-            size += len(sentence)
-            i += 1
-            if size >= chunk_size:
-                break
-        chunks.append("".join(buf))
-        if i >= len(sentences):
-            break
-        back = 0
-        new_start = i
-        for k in range(i - 1, start, -1):
-            back += len(sentences[k])
-            new_start = k
-            if back >= overlap:
-                break
-        start = max(new_start, start + 1)
-    return chunks
+    return [part.strip() for part in _TEXT_SPLITTER.split_text(text) if part.strip()]
 
 
 def _file_sha256(path: str) -> str:
@@ -156,7 +128,7 @@ def _nodes_from_document(file_path: str, text: str, file_name: str, file_hash: s
         TextNode 列表
     """
     file_type = os.path.splitext(file_name)[1].lstrip(".").lower() or "txt"
-    chunks = hybrid_chunk(text)
+    chunks = split_chunks(text)
     nodes = []
     for idx, chunk in enumerate(chunks):
         node_id = f"{hashlib.sha256(f'{file_name}:{file_hash}:{idx}'.encode('utf-8')).hexdigest()[:20]}"
@@ -188,15 +160,22 @@ def build_chroma_index(docs_dir: str = DOCS_DIR, chroma_dir: str = CHROMA_DIR) -
     if not os.path.isdir(docs_dir):
         raise FileNotFoundError(f"文档目录不存在: {docs_dir}，请先放入待检索文件")
 
+    # 打开 Chroma 数据库
     _client, collection = _open_collection()
+    # 创建向量存储
     vector_store = ChromaVectorStore(chroma_collection=collection)
+    # 创建存储上下文
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    # 创建索引
+    # 至此，索引创建完成：连接 Chroma 数据库，创建向量存储，创建存储上下文，创建索引
     index = VectorStoreIndex.from_vector_store(vector_store, storage_context=storage_context)
 
+    # 加载文档
     documents = SimpleDirectoryReader(docs_dir).load_data()
     if not documents:
         raise ValueError(f"文档目录为空: {docs_dir}，请先放入待检索文件")
 
+    # 加载清单：_load_manifest() 是用于加载 Chroma 数据库中的清单文件，以跟踪哪些文件已经索引过
     manifest = _load_manifest()
     files_meta = manifest.get("files", {})
     seen_names = set()
@@ -209,7 +188,11 @@ def build_chroma_index(docs_dir: str = DOCS_DIR, chroma_dir: str = CHROMA_DIR) -
         seen_names.add(file_name)
         file_hash = _file_sha256(file_path)
         prev = files_meta.get(file_name)
-        if prev and prev.get("hash") == file_hash:
+        if (
+            prev
+            and prev.get("hash") == file_hash
+            and prev.get("chunk_spec") == CHUNK_SPEC
+        ):
             continue
         if prev and prev.get("chunk_ids"):
             _delete_chunk_ids(index, prev["chunk_ids"])
@@ -221,6 +204,7 @@ def build_chroma_index(docs_dir: str = DOCS_DIR, chroma_dir: str = CHROMA_DIR) -
             "hash": file_hash,
             "chunk_ids": [node.node_id for node in nodes],
             "file_type": os.path.splitext(file_name)[1].lstrip(".").lower(),
+            "chunk_spec": CHUNK_SPEC,
         }
         print(f"[Chroma] 已索引 {file_name}，{len(nodes)} 个 chunk")
 

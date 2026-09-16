@@ -4,10 +4,13 @@ __pycache__/
 *.pyc
 node_modules/
 frontend/dist/
+frontend/pnpm-lock.yaml
+frontend/package-lock.json
 static/assets/
 storage/
 chroma/
 reports/
 data/
+plans/
 .env
 .DS_Store

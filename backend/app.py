@@ -17,6 +17,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 VITE_ORIGIN = "http://127.0.0.1:5173"
 load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
+# 清空代理环境变量：防止代理影响请求。
 for _proxy_key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
     os.environ.pop(_proxy_key, None)
 
@@ -126,6 +127,8 @@ def create_app():
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
     db.init_app(app)
+
+    # 创建数据库表。
     with app.app_context():
         db.create_all()
 

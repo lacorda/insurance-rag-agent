@@ -73,12 +73,19 @@ def init_agent() -> RagRuntime:
     返回:
         RagRuntime
     """
+
+    # 配置 LlamaIndex 全局 LLM 与 Embedding，供 Chroma 向量检索使用。
     setup_llamaindex()
     api_key = _require_api_key()
+    # 构建 Chroma 索引。
     index = build_chroma_index()
+    # 加载所有分块。
     chunks = load_all_chunks(index)
+    # 构建 BM25 索引。
     bm25, chunks = build_bm25(chunks)
+    # 构建混合检索器。
     parallel = create_hybrid_retriever(index, bm25, chunks)
+    # 构建 LLM。
     llm = ChatTongyi(model_name="deepseek-v3", dashscope_api_key=api_key)
     return RagRuntime(
         api_key=api_key,
